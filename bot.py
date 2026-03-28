@@ -8,7 +8,7 @@ from datetime import datetime
 # ──────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────
-TOKEN = os.environ.get("")   # Set this as an environment variable
+TOKEN = os.environ.get("DISCORD_TOKEN")   # Set this as an environment variable
 DATA_FILE = "data.json"
 EMBED_COLOR = 0x5865F2                     # Discord blurple
 
