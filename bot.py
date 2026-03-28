@@ -125,7 +125,7 @@ class ConfessionModal(discord.ui.Modal, title="Submit a Confession"):
                 )
                 log_embed.add_field(
                     name="Submitted by",
-                    value=f"{interaction.user.mention} (`{interaction.user}` | ID: `{interaction.user.id}`)",
+                    value=f"||{interaction.user.mention} (`{interaction.user}` | ID: `{interaction.user.id}`)||",
                     inline=False,
                 )
                 log_embed.set_footer(text="This log is only visible to moderators.")
