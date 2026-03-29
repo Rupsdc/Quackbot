@@ -89,7 +89,7 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    if message.content.strip().lower() == "quack":
+    if "quack" in message.content.lower():
         await message.channel.send(pick_quack())
 
     await bot.process_commands(message)  # keep prefix commands working
