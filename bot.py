@@ -12,17 +12,16 @@ import re
 # ──────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────
-TOKEN        = os.environ.get("DISCORD_TOKEN")
-DEV_GUILD_ID = os.environ.get("DEV_GUILD_ID")  # Set to your server ID for instant slash command syncing
-DATA_FILE    = "data.json"
-EMBED_COLOR  = 0x5865F2  # Discord blurple
+TOKEN    = os.environ.get("DISCORD_TOKEN")
+GUILD_ID = os.environ.get("GUILD_ID")       # Your server's ID — set this in Railway
+DATA_FILE   = "data.json"
+EMBED_COLOR = 0x5865F2  # Discord blurple
 
 
 # ──────────────────────────────────────────────
-#  Quack config — chaotic/unhinged
+#  Quack config
 # ──────────────────────────────────────────────
 QUACK_RESPONSES = [
-    # Weight, response
     (40, "quack"),
     (25, "quack quack"),
     (12, "QUACK"),
@@ -36,8 +35,8 @@ QUACK_RESPONSES = [
 ]
 
 def pick_quack():
-    population = [resp for weight, resp in QUACK_RESPONSES]
-    weights    = [weight for weight, _ in QUACK_RESPONSES]
+    population = [resp for _, resp in QUACK_RESPONSES]
+    weights    = [w    for w, _    in QUACK_RESPONSES]
     return random.choices(population, weights=weights, k=1)[0]
 
 
@@ -72,24 +71,21 @@ def guild_data(data: dict, guild_id: int) -> dict:
 #  Bot setup
 # ──────────────────────────────────────────────
 intents = discord.Intents.default()
-intents.message_content = True   # needed to read message content for quack
-intents.members = True           # needed for lowest_activity member list
+intents.message_content = True
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 @bot.event
 async def on_ready():
-    if DEV_GUILD_ID:
-        # Instant sync to your specific server — use this during development
-        guild = discord.Object(id=int(DEV_GUILD_ID))
-        bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-        print(f"⚡ Slash commands synced instantly to guild {DEV_GUILD_ID}")
-    else:
-        # Global sync — can take up to 1 hour to propagate
-        await bot.tree.sync()
-        print("🌐 Slash commands synced globally (may take up to 1 hour)")
+    guild = discord.Object(id=int(GUILD_ID))
+
+    # Wipe any stale commands then push the current set — instant update every deploy
+    bot.tree.clear_commands(guild=guild)
+    await bot.tree.sync(guild=guild)
+
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"⚡ Slash commands synced to guild {GUILD_ID}")
 
 
 # ──────────────────────────────────────────────
@@ -103,7 +99,7 @@ async def on_message(message: discord.Message):
     if "quack" in message.content.lower():
         await message.channel.send(pick_quack())
 
-    await bot.process_commands(message)  # keep prefix commands working
+    await bot.process_commands(message)
 
 
 # ──────────────────────────────────────────────
@@ -414,7 +410,6 @@ async def inactivity_kick(interaction: discord.Interaction, member: discord.Memb
         await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
 
 
-
 # ──────────────────────────────────────────────
 #  Timezone slash commands
 # ──────────────────────────────────────────────
@@ -422,13 +417,9 @@ async def inactivity_kick(interaction: discord.Interaction, member: discord.Memb
 @bot.tree.command(name="settimezone", description="Save your timezone so others can check your local time.")
 @app_commands.describe(timezone="Your timezone (e.g. America/New_York, Europe/London, Asia/Tokyo)")
 async def settimezone(interaction: discord.Interaction, timezone: str):
-    # Validate the timezone string
     if timezone not in pytz.all_timezones:
-        # Try to find close matches for a helpful error
         matches = [tz for tz in pytz.all_timezones if timezone.lower() in tz.lower()][:5]
-        hint = ""
-        if matches:
-            hint = f"\nDid you mean: `{'`, `'.join(matches)}`?"
+        hint = f"\nDid you mean: `{'`, `'.join(matches)}`?" if matches else ""
         await interaction.response.send_message(
             f"❌ `{timezone}` is not a valid timezone.{hint}\n"
             f"Find yours at <https://kevinnovak.github.io/Time-Zone-Picker/>",
@@ -473,9 +464,9 @@ async def time_for_user(interaction: discord.Interaction, member: discord.Member
         title=f"🕐 Local time for {member.display_name}",
         color=EMBED_COLOR,
     )
-    embed.add_field(name="Time",     value=now.strftime("%I:%M %p"),          inline=True)
-    embed.add_field(name="Date",     value=now.strftime("%A, %B %d %Y"),      inline=True)
-    embed.add_field(name="Timezone", value=f"`{tz_str}`",                     inline=True)
+    embed.add_field(name="Time",     value=now.strftime("%I:%M %p"),     inline=True)
+    embed.add_field(name="Date",     value=now.strftime("%A, %B %d %Y"), inline=True)
+    embed.add_field(name="Timezone", value=f"`{tz_str}`",                inline=True)
     embed.set_thumbnail(url=member.display_avatar.url)
 
     await interaction.response.send_message(embed=embed)
@@ -485,7 +476,6 @@ def parse_time(time_str: str):
     """Parse time strings like 3pm, 15:00, 3:30pm, 15:30 — returns (hour, minute) or raises ValueError."""
     time_str = time_str.strip().lower()
 
-    # Match 12-hour: 3pm, 3:30pm, 03:30pm
     m = re.fullmatch(r'(\d{1,2})(?::(\d{2}))?(am|pm)', time_str)
     if m:
         hour, minute, period = int(m.group(1)), int(m.group(2) or 0), m.group(3)
@@ -497,7 +487,6 @@ def parse_time(time_str: str):
             hour = 0
         return hour, minute
 
-    # Match 24-hour: 15:00, 03:30, 0:00
     m = re.fullmatch(r'(\d{1,2}):(\d{2})', time_str)
     if m:
         hour, minute = int(m.group(1)), int(m.group(2))
@@ -514,7 +503,6 @@ def parse_time(time_str: str):
     timezone="The timezone this time is in (e.g. America/New_York)",
 )
 async def timefor(interaction: discord.Interaction, time: str, timezone: str):
-    # Validate source timezone
     if timezone not in pytz.all_timezones:
         matches = [tz for tz in pytz.all_timezones if timezone.lower() in tz.lower()][:5]
         hint = f"\nDid you mean: `{'`, `'.join(matches)}`?" if matches else ""
@@ -525,7 +513,6 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
         )
         return
 
-    # Parse the time
     try:
         hour, minute = parse_time(time)
         source_tz  = pytz.timezone(timezone)
@@ -551,7 +538,6 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
         )
         return
 
-    # Build conversion lines — deduplicate identical timezones
     seen_tzs = {}
     for uid, tz_str in registered.items():
         if tz_str in seen_tzs:
@@ -584,7 +570,7 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
 
 
 # ──────────────────────────────────────────────
-#  Global error handler for permission checks
+#  Global error handler
 # ──────────────────────────────────────────────
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -605,4 +591,6 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 if __name__ == "__main__":
     if not TOKEN:
         raise ValueError("DISCORD_TOKEN environment variable is not set!")
+    if not GUILD_ID:
+        raise ValueError("GUILD_ID environment variable is not set!")
     bot.run(TOKEN)
