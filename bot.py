@@ -7,7 +7,7 @@ import random
 import asyncio
 from datetime import datetime, timezone, timedelta
 import pytz
-from dateutil import parser as dateparser
+import re
 
 # ──────────────────────────────────────────────
 #  Config
@@ -153,7 +153,7 @@ class ConfessionModal(discord.ui.Modal, title="Submit a Confession"):
             title=f"💬 Confession #{confession_number}",
             description=self.confession.value,
             color=EMBED_COLOR,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         embed.set_footer(text="Submit your own with /confess")
         await channel.send(embed=embed)
@@ -166,7 +166,7 @@ class ConfessionModal(discord.ui.Modal, title="Submit a Confession"):
                     title=f"📋 Confession #{confession_number} — Mod Log",
                     description=self.confession.value,
                     color=0xFF6B6B,
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                 )
                 log_embed.add_field(
                     name="Submitted by",
@@ -481,6 +481,33 @@ async def time_for_user(interaction: discord.Interaction, member: discord.Member
     await interaction.response.send_message(embed=embed)
 
 
+def parse_time(time_str: str):
+    """Parse time strings like 3pm, 15:00, 3:30pm, 15:30 — returns (hour, minute) or raises ValueError."""
+    time_str = time_str.strip().lower()
+
+    # Match 12-hour: 3pm, 3:30pm, 03:30pm
+    m = re.fullmatch(r'(\d{1,2})(?::(\d{2}))?(am|pm)', time_str)
+    if m:
+        hour, minute, period = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+        if not (1 <= hour <= 12) or not (0 <= minute <= 59):
+            raise ValueError("Invalid time")
+        if period == "pm" and hour != 12:
+            hour += 12
+        if period == "am" and hour == 12:
+            hour = 0
+        return hour, minute
+
+    # Match 24-hour: 15:00, 03:30, 0:00
+    m = re.fullmatch(r'(\d{1,2}):(\d{2})', time_str)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        if not (0 <= hour <= 23) or not (0 <= minute <= 59):
+            raise ValueError("Invalid time")
+        return hour, minute
+
+    raise ValueError("Unrecognised format")
+
+
 @bot.tree.command(name="timefor", description="Convert a time into every timezone members have registered.")
 @app_commands.describe(
     time="The time to convert (e.g. 3pm, 15:00, 3:30pm)",
@@ -498,18 +525,15 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
         )
         return
 
-    # Parse the time — supports 3pm, 15:00, 3:30pm, 15:30, etc.
+    # Parse the time
     try:
-        source_tz = pytz.timezone(timezone)
-        naive_dt  = dateparser.parse(time, fuzzy=True)
-        if not naive_dt:
-            raise ValueError("Could not parse time")
-        # Apply today's date in the source timezone, keep parsed H:M
+        hour, minute = parse_time(time)
+        source_tz  = pytz.timezone(timezone)
         now_source = datetime.now(source_tz)
         source_dt  = source_tz.localize(
-            naive_dt.replace(year=now_source.year, month=now_source.month, day=now_source.day)
+            now_source.replace(hour=hour, minute=minute, second=0, microsecond=0)
         )
-    except Exception:
+    except ValueError:
         await interaction.response.send_message(
             "❌ Couldn't parse that time. Try formats like `3pm`, `15:00`, or `3:30pm`.",
             ephemeral=True,
@@ -554,7 +578,7 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
         lines.append(f"`{tz_str}` — **{converted.strftime('%I:%M %p')}** *(e.g. {display_name})*")
 
     embed.description = "\n".join(lines)
-    embed.set_footer(text=f"Showing all unique timezones registered in this server.")
+    embed.set_footer(text="Showing all unique timezones registered in this server.")
 
     await interaction.response.send_message(embed=embed)
 
