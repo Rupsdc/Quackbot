@@ -10,9 +10,10 @@ from datetime import datetime, timezone, timedelta
 # ──────────────────────────────────────────────
 #  Config
 # ──────────────────────────────────────────────
-TOKEN = os.environ.get("DISCORD_TOKEN")
-DATA_FILE = "data.json"
-EMBED_COLOR = 0x5865F2  # Discord blurple
+TOKEN        = os.environ.get("DISCORD_TOKEN")
+DEV_GUILD_ID = os.environ.get("DEV_GUILD_ID")  # Set to your server ID for instant slash command syncing
+DATA_FILE    = "data.json"
+EMBED_COLOR  = 0x5865F2  # Discord blurple
 
 
 # ──────────────────────────────────────────────
@@ -76,9 +77,17 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
+    if DEV_GUILD_ID:
+        # Instant sync to your specific server — use this during development
+        guild = discord.Object(id=int(DEV_GUILD_ID))
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print(f"⚡ Slash commands synced instantly to guild {DEV_GUILD_ID}")
+    else:
+        # Global sync — can take up to 1 hour to propagate
+        await bot.tree.sync()
+        print("🌐 Slash commands synced globally (may take up to 1 hour)")
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print("Slash commands synced.")
 
 
 # ──────────────────────────────────────────────
