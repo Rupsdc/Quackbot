@@ -6,6 +6,8 @@ import os
 import random
 import asyncio
 from datetime import datetime, timezone, timedelta
+import pytz
+from dateutil import parser as dateparser
 
 # ──────────────────────────────────────────────
 #  Config
@@ -410,6 +412,151 @@ async def inactivity_kick(interaction: discord.Interaction, member: discord.Memb
         )
     except Exception as e:
         await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=True)
+
+
+
+# ──────────────────────────────────────────────
+#  Timezone slash commands
+# ──────────────────────────────────────────────
+
+@bot.tree.command(name="settimezone", description="Save your timezone so others can check your local time.")
+@app_commands.describe(timezone="Your timezone (e.g. America/New_York, Europe/London, Asia/Tokyo)")
+async def settimezone(interaction: discord.Interaction, timezone: str):
+    # Validate the timezone string
+    if timezone not in pytz.all_timezones:
+        # Try to find close matches for a helpful error
+        matches = [tz for tz in pytz.all_timezones if timezone.lower() in tz.lower()][:5]
+        hint = ""
+        if matches:
+            hint = f"\nDid you mean: `{'`, `'.join(matches)}`?"
+        await interaction.response.send_message(
+            f"❌ `{timezone}` is not a valid timezone.{hint}\n"
+            f"Find yours at <https://kevinnovak.github.io/Time-Zone-Picker/>",
+            ephemeral=True,
+        )
+        return
+
+    data = load_data()
+    gd = guild_data(data, interaction.guild_id)
+    if "timezones" not in gd:
+        gd["timezones"] = {}
+    gd["timezones"][str(interaction.user.id)] = timezone
+    save_data(data)
+
+    tz = pytz.timezone(timezone)
+    now = datetime.now(tz)
+    await interaction.response.send_message(
+        f"✅ Timezone set to **{timezone}**. Your current local time is **{now.strftime('%I:%M %p')}**.",
+        ephemeral=True,
+    )
+
+
+@bot.tree.command(name="time", description="See what time it currently is for a member.")
+@app_commands.describe(member="The member whose local time you want to see")
+async def time_for_user(interaction: discord.Interaction, member: discord.Member):
+    data = load_data()
+    gd = guild_data(data, interaction.guild_id)
+    timezones = gd.get("timezones", {})
+    tz_str = timezones.get(str(member.id))
+
+    if not tz_str:
+        await interaction.response.send_message(
+            f"❌ {member.display_name} hasn't set their timezone yet. They can use `/settimezone`.",
+            ephemeral=True,
+        )
+        return
+
+    tz = pytz.timezone(tz_str)
+    now = datetime.now(tz)
+
+    embed = discord.Embed(
+        title=f"🕐 Local time for {member.display_name}",
+        color=EMBED_COLOR,
+    )
+    embed.add_field(name="Time",     value=now.strftime("%I:%M %p"),          inline=True)
+    embed.add_field(name="Date",     value=now.strftime("%A, %B %d %Y"),      inline=True)
+    embed.add_field(name="Timezone", value=f"`{tz_str}`",                     inline=True)
+    embed.set_thumbnail(url=member.display_avatar.url)
+
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="timefor", description="Convert a time into every timezone members have registered.")
+@app_commands.describe(
+    time="The time to convert (e.g. 3pm, 15:00, 3:30pm)",
+    timezone="The timezone this time is in (e.g. America/New_York)",
+)
+async def timefor(interaction: discord.Interaction, time: str, timezone: str):
+    # Validate source timezone
+    if timezone not in pytz.all_timezones:
+        matches = [tz for tz in pytz.all_timezones if timezone.lower() in tz.lower()][:5]
+        hint = f"\nDid you mean: `{'`, `'.join(matches)}`?" if matches else ""
+        await interaction.response.send_message(
+            f"❌ `{timezone}` is not a valid timezone.{hint}\n"
+            f"Find yours at <https://kevinnovak.github.io/Time-Zone-Picker/>",
+            ephemeral=True,
+        )
+        return
+
+    # Parse the time — supports 3pm, 15:00, 3:30pm, 15:30, etc.
+    try:
+        source_tz = pytz.timezone(timezone)
+        naive_dt  = dateparser.parse(time, fuzzy=True)
+        if not naive_dt:
+            raise ValueError("Could not parse time")
+        # Apply today's date in the source timezone, keep parsed H:M
+        now_source = datetime.now(source_tz)
+        source_dt  = source_tz.localize(
+            naive_dt.replace(year=now_source.year, month=now_source.month, day=now_source.day)
+        )
+    except Exception:
+        await interaction.response.send_message(
+            "❌ Couldn't parse that time. Try formats like `3pm`, `15:00`, or `3:30pm`.",
+            ephemeral=True,
+        )
+        return
+
+    data = load_data()
+    gd   = guild_data(data, interaction.guild_id)
+    registered = gd.get("timezones", {})
+
+    if not registered:
+        await interaction.response.send_message(
+            "❌ No members have registered their timezone yet. Use `/settimezone` first.",
+            ephemeral=True,
+        )
+        return
+
+    # Build conversion lines — deduplicate identical timezones
+    seen_tzs = {}
+    for uid, tz_str in registered.items():
+        if tz_str in seen_tzs:
+            continue
+        member = interaction.guild.get_member(int(uid))
+        if not member:
+            continue
+        converted = source_dt.astimezone(pytz.timezone(tz_str))
+        seen_tzs[tz_str] = (member.display_name, converted)
+
+    if not seen_tzs:
+        await interaction.response.send_message(
+            "❌ No members with registered timezones found in this server.",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title=f"🌍 Time Conversion — {source_dt.strftime('%I:%M %p')} {timezone}",
+        color=EMBED_COLOR,
+    )
+    lines = []
+    for tz_str, (display_name, converted) in sorted(seen_tzs.items(), key=lambda x: x[1][1].utcoffset()):
+        lines.append(f"`{tz_str}` — **{converted.strftime('%I:%M %p')}** *(e.g. {display_name})*")
+
+    embed.description = "\n".join(lines)
+    embed.set_footer(text=f"Showing all unique timezones registered in this server.")
+
+    await interaction.response.send_message(embed=embed)
 
 
 # ──────────────────────────────────────────────
