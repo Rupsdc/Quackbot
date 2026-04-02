@@ -80,12 +80,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
 
-    # Wipe any stale commands then push the current set — instant update every deploy
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
+    # Copy global commands into guild scope, then sync
+    bot.tree.copy_global_to(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
 
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"⚡ Slash commands synced to guild {GUILD_ID}")
+    print(f"⚡ Synced {len(synced)} commands to guild {GUILD_ID}")
+    for cmd in synced:
+        print(f"   • /{cmd.name}")
 
 
 # ──────────────────────────────────────────────
