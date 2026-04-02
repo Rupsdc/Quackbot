@@ -80,11 +80,14 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
-    
-    # Add all commands to the guild tree explicitly
+
+    # ONE-TIME: nuke global commands
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync(guild=None)
+
+    # Normal guild sync
     for cmd in bot.tree.get_commands():
         bot.tree.add_command(cmd, guild=guild, override=True)
-    
     synced = await bot.tree.sync(guild=guild)
 
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
