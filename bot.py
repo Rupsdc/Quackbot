@@ -80,7 +80,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
 
-    # Copy global commands into guild scope, then sync
+    # Clear both global AND guild-scoped duplicates
+    bot.tree.clear_commands(guild=None)   # wipes global
+    bot.tree.clear_commands(guild=guild)  # wipes guild-scoped
+    
+    await bot.tree.sync(guild=None)       # push empty global list to Discord
+    
     bot.tree.copy_global_to(guild=guild)
     synced = await bot.tree.sync(guild=guild)
 
