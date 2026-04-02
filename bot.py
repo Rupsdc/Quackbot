@@ -70,15 +70,20 @@ def guild_data(data: dict, guild_id: int) -> dict:
 # ──────────────────────────────────────────────
 #  Bot setup
 # ──────────────────────────────────────────────
+# Replace your bot setup and on_ready with this:
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-
 @bot.event
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
+    
+    # Add all commands to the guild tree explicitly
+    for cmd in bot.tree.get_commands():
+        bot.tree.add_command(cmd, guild=guild, override=True)
     
     synced = await bot.tree.sync(guild=guild)
 
