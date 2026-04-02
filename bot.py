@@ -81,10 +81,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
 
-    # ONE-TIME: nuke global commands
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync(guild=None)
-
     # Normal guild sync
     for cmd in bot.tree.get_commands():
         bot.tree.add_command(cmd, guild=guild, override=True)
