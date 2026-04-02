@@ -512,7 +512,7 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
         hint = f"\nDid you mean: `{'`, `'.join(matches)}`?" if matches else ""
         await interaction.response.send_message(
             f"❌ `{timezone}` is not a valid timezone.{hint}\n"
-            f"Find yours at <https://kevinnovak.github.io/Time-Zone-Picker/>",
+            f"Find yours at <https://zones.arilyn.cc/>",
             ephemeral=True,
         )
         return
