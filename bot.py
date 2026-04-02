@@ -79,11 +79,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @bot.event
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
-
-    # First push empty list to global to remove global duplicates
-    await bot.tree.sync(guild=None)
-
-    # Then sync all commands to guild only
+    
     synced = await bot.tree.sync(guild=guild)
 
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
