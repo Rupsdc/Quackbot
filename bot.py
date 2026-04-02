@@ -80,13 +80,10 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
 
-    # Clear both global AND guild-scoped duplicates
-    bot.tree.clear_commands(guild=None)   # wipes global
-    bot.tree.clear_commands(guild=guild)  # wipes guild-scoped
-    
-    await bot.tree.sync(guild=None)       # push empty global list to Discord
-    
-    bot.tree.copy_global_to(guild=guild)
+    # First push empty list to global to remove global duplicates
+    await bot.tree.sync(guild=None)
+
+    # Then sync all commands to guild only
     synced = await bot.tree.sync(guild=guild)
 
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
