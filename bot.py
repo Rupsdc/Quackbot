@@ -427,7 +427,7 @@ async def settimezone(interaction: discord.Interaction, timezone: str):
         hint = f"\nDid you mean: `{'`, `'.join(matches)}`?" if matches else ""
         await interaction.response.send_message(
             f"❌ `{timezone}` is not a valid timezone.{hint}\n"
-            f"Find yours at <https://kevinnovak.github.io/Time-Zone-Picker/>",
+            f"Find yours at <https:// />",
             ephemeral=True,
         )
         return
