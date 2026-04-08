@@ -604,6 +604,32 @@ async def on_presence_update(before: discord.Member, after: discord.Member):
             f"👤 **{after.display_name}** status changed: {old_label} → {new_label}"
         )
 
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    if "quack" in message.content.lower():
+        await message.channel.send(pick_quack())
+
+    # ← Add this block:
+    if message.content == "Check on my Quilly" and message.author.id == NOTIFY_USER_ID:
+        guild = bot.guilds[0]  # assumes bot is only in one server
+        member = guild.get_member(WATCH_USER_ID)
+        if member:
+            status_labels = {
+                discord.Status.online:  "🟢 Online",
+                discord.Status.idle:    "🌙 Idle",
+                discord.Status.dnd:     "⛔ Do Not Disturb",
+                discord.Status.offline: "⚫ Offline / Invisible",
+            }
+            label = status_labels.get(member.status, str(member.status))
+            await message.channel.send(f"👤 **{member.display_name}** is currently: {label}")
+        else:
+            await message.channel.send("❌ Couldn't find that user in the server.")
+
+    await bot.process_commands(message)
+
 
 # ──────────────────────────────────────────────
 #  Global error handler
