@@ -75,6 +75,7 @@ def guild_data(data: dict, guild_id: int) -> dict:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
@@ -571,6 +572,37 @@ async def timefor(interaction: discord.Interaction, time: str, timezone: str):
     embed.set_footer(text="Showing all unique timezones registered in this server.")
 
     await interaction.response.send_message(embed=embed)
+
+# ──────────────────────────────────────────────
+#  Tracker
+# ──────────────────────────────────────────────
+
+WATCH_USER_ID  = 508223512553586688   # user to monitor
+NOTIFY_USER_ID = 1329607491201536082  # your account
+
+@bot.event
+async def on_presence_update(before: discord.Member, after: discord.Member):
+    if after.id != WATCH_USER_ID:
+        return
+
+    if before.status == after.status:
+        return  # no status change, ignore
+
+    status_labels = {
+        discord.Status.online:    "🟢 Online",
+        discord.Status.idle:      "🌙 Idle",
+        discord.Status.dnd:       "⛔ Do Not Disturb",
+        discord.Status.offline:   "⚫ Offline",
+    }
+
+    old_label = status_labels.get(before.status, str(before.status))
+    new_label = status_labels.get(after.status, str(after.status))
+
+    notify_user = await bot.fetch_user(NOTIFY_USER_ID)
+    if notify_user:
+        await notify_user.send(
+            f"👤 **{after.display_name}** status changed: {old_label} → {new_label}"
+        )
 
 
 # ──────────────────────────────────────────────
