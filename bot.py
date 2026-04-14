@@ -8,6 +8,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import pytz
 import re
+from googletrans import Translator, LANGUAGES
 
 # ──────────────────────────────────────────────
 #  Config
@@ -41,6 +42,17 @@ def pick_quack():
 
 
 # ──────────────────────────────────────────────
+#  Translation config
+# ──────────────────────────────────────────────
+translator = Translator()
+
+# Min message length to bother translating (avoids false positives on "lol", "ok", etc.)
+AUTO_TRANSLATE_MIN_LENGTH = 8
+# Min detection confidence to auto-translate
+AUTO_TRANSLATE_MIN_CONFIDENCE = 0.75
+
+
+# ──────────────────────────────────────────────
 #  Data helpers
 # ──────────────────────────────────────────────
 def load_data() -> dict:
@@ -63,15 +75,17 @@ def guild_data(data: dict, guild_id: int) -> dict:
             "log_channel": None,
             "banned_users": [],
             "confession_count": 0,
+            "auto_translate_channels": [],   # NEW
         }
+    # Migrate older data that doesn't have this key yet
+    if "auto_translate_channels" not in data[key]:
+        data[key]["auto_translate_channels"] = []
     return data[key]
 
 
 # ──────────────────────────────────────────────
 #  Bot setup
 # ──────────────────────────────────────────────
-# Replace your bot setup and on_ready with this:
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -82,7 +96,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def on_ready():
     guild = discord.Object(id=int(GUILD_ID))
 
-    # Normal guild sync
     for cmd in bot.tree.get_commands():
         bot.tree.add_command(cmd, guild=guild, override=True)
     synced = await bot.tree.sync(guild=guild)
@@ -94,17 +107,133 @@ async def on_ready():
 
 
 # ──────────────────────────────────────────────
-#  Quack listener
+#  Message listener (quack + auto-translate)
 # ──────────────────────────────────────────────
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
+    # Quack
     if "quack" in message.content.lower():
         await message.channel.send(pick_quack())
 
+    # Auto-translate
+    if message.content and len(message.content) >= AUTO_TRANSLATE_MIN_LENGTH:
+        data = load_data()
+        gd = guild_data(data, message.guild.id)
+        if message.channel.id in gd["auto_translate_channels"]:
+            try:
+                detection = translator.detect(message.content)
+                if (
+                    detection.lang != "en"
+                    and detection.confidence >= AUTO_TRANSLATE_MIN_CONFIDENCE
+                ):
+                    result = translator.translate(message.content, dest="en")
+                    lang_name = LANGUAGES.get(detection.lang, detection.lang).title()
+                    embed = discord.Embed(
+                        description=f"🌐 **Auto-translated from {lang_name}:**\n{result.text}",
+                        color=EMBED_COLOR,
+                    )
+                    embed.set_footer(text=f"Original message by {message.author.display_name}")
+                    await message.reply(embed=embed, mention_author=False)
+            except Exception as e:
+                print(f"Auto-translate error: {e}")
+
     await bot.process_commands(message)
+
+
+# ──────────────────────────────────────────────
+#  Translation slash commands
+# ──────────────────────────────────────────────
+
+@bot.tree.command(name="translate", description="Translate text to any language.")
+@app_commands.describe(
+    text="The text to translate",
+    to="Target language — name or code (e.g. spanish, fr, de, ja). Defaults to English.",
+)
+async def translate(interaction: discord.Interaction, text: str, to: str = "en"):
+    await interaction.response.defer()
+    try:
+        dest = to.lower()
+        if dest not in LANGUAGES:
+            match = next((k for k, v in LANGUAGES.items() if v.lower() == dest), None)
+            if not match:
+                await interaction.followup.send(
+                    f"❌ Unknown language `{to}`. Try a code like `es`, `fr`, `de`, or a full name like `spanish`.",
+                    ephemeral=True,
+                )
+                return
+            dest = match
+
+        detection = translator.detect(text)
+        result = translator.translate(text, dest=dest)
+        src_name  = LANGUAGES.get(detection.lang, detection.lang).title()
+        dest_name = LANGUAGES.get(dest, dest).title()
+
+        embed = discord.Embed(title="🌐 Translation", color=EMBED_COLOR)
+        embed.add_field(name=f"Original ({src_name})", value=text,        inline=False)
+        embed.add_field(name=f"Translated ({dest_name})", value=result.text, inline=False)
+        await interaction.followup.send(embed=embed)
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Translation failed: {e}", ephemeral=True)
+
+
+@bot.tree.command(
+    name="autotranslate",
+    description="Enable or disable auto-translation in a channel. (Admin only)",
+)
+@app_commands.describe(
+    channel="The channel to toggle auto-translation for",
+    enabled="True to enable, False to disable",
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def autotranslate(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    enabled: bool,
+):
+    data = load_data()
+    gd = guild_data(data, interaction.guild_id)
+
+    if enabled:
+        if channel.id not in gd["auto_translate_channels"]:
+            gd["auto_translate_channels"].append(channel.id)
+        save_data(data)
+        await interaction.response.send_message(
+            f"✅ Auto-translation **enabled** in {channel.mention}. "
+            f"Non-English messages will be automatically translated to English.",
+            ephemeral=True,
+        )
+    else:
+        if channel.id in gd["auto_translate_channels"]:
+            gd["auto_translate_channels"].remove(channel.id)
+        save_data(data)
+        await interaction.response.send_message(
+            f"✅ Auto-translation **disabled** in {channel.mention}.",
+            ephemeral=True,
+        )
+
+
+# Right-click a message → Translate to English
+@bot.tree.context_menu(name="Translate to English")
+async def translate_message(interaction: discord.Interaction, message: discord.Message):
+    await interaction.response.defer(ephemeral=True)
+    if not message.content:
+        await interaction.followup.send("❌ That message has no text to translate.", ephemeral=True)
+        return
+    try:
+        detection = translator.detect(message.content)
+        result    = translator.translate(message.content, dest="en")
+        src_name  = LANGUAGES.get(detection.lang, detection.lang).title()
+
+        embed = discord.Embed(title="🌐 Translation", color=EMBED_COLOR)
+        embed.add_field(name=f"Original ({src_name})", value=message.content[:1024], inline=False)
+        embed.add_field(name="English",                value=result.text[:1024],     inline=False)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"❌ Translation failed: {e}", ephemeral=True)
 
 
 # ──────────────────────────────────────────────
@@ -297,12 +426,15 @@ async def confessinfo(interaction: discord.Interaction):
     log_channel        = f"<#{gd['log_channel']}>"        if gd.get("log_channel")        else "Not set"
     banned_count       = len(gd.get("banned_users", []))
     total              = gd.get("confession_count", 0)
+    auto_channels      = gd.get("auto_translate_channels", [])
+    auto_translate_val = ", ".join(f"<#{c}>" for c in auto_channels) if auto_channels else "None"
 
     embed = discord.Embed(title="⚙️ Confession Bot — Server Config", color=EMBED_COLOR)
-    embed.add_field(name="Confession Channel", value=confession_channel, inline=True)
-    embed.add_field(name="Mod Log Channel",    value=log_channel,        inline=True)
-    embed.add_field(name="Total Confessions",  value=str(total),         inline=True)
-    embed.add_field(name="Banned Users",       value=str(banned_count),  inline=True)
+    embed.add_field(name="Confession Channel",    value=confession_channel, inline=True)
+    embed.add_field(name="Mod Log Channel",       value=log_channel,        inline=True)
+    embed.add_field(name="Total Confessions",     value=str(total),         inline=True)
+    embed.add_field(name="Banned Users",          value=str(banned_count),  inline=True)
+    embed.add_field(name="Auto-Translate Channels", value=auto_translate_val, inline=False)
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
