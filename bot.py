@@ -8,7 +8,8 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 import pytz
 import re
-from googletrans import Translator, LANGUAGES
+from deep_translator import GoogleTranslator
+from deep_translator.exceptions import LanguageNotSupportedException
 
 # ──────────────────────────────────────────────
 #  Config
@@ -44,12 +45,9 @@ def pick_quack():
 # ──────────────────────────────────────────────
 #  Translation config
 # ──────────────────────────────────────────────
-translator = Translator()
 
 # Min message length to bother translating (avoids false positives on "lol", "ok", etc.)
 AUTO_TRANSLATE_MIN_LENGTH = 8
-# Min detection confidence to auto-translate
-AUTO_TRANSLATE_MIN_CONFIDENCE = 0.75
 
 
 # ──────────────────────────────────────────────
@@ -124,15 +122,13 @@ async def on_message(message: discord.Message):
         gd = guild_data(data, message.guild.id)
         if message.channel.id in gd["auto_translate_channels"]:
             try:
-                detection = translator.detect(message.content)
-                if (
-                    detection.lang != "en"
-                    and detection.confidence >= AUTO_TRANSLATE_MIN_CONFIDENCE
-                ):
-                    result = translator.translate(message.content, dest="en")
-                    lang_name = LANGUAGES.get(detection.lang, detection.lang).title()
+                t = GoogleTranslator(source="auto", target="en")
+                detected_lang = t.detect(message.content)
+                if detected_lang and detected_lang != "en":
+                    result = t.translate(message.content)
+                    lang_name = detected_lang.title()
                     embed = discord.Embed(
-                        description=f"🌐 **Auto-translated from {lang_name}:**\n{result.text}",
+                        description=f"🌐 **Auto-translated from {lang_name}:**\n{result}",
                         color=EMBED_COLOR,
                     )
                     embed.set_footer(text=f"Original message by {message.author.display_name}")
@@ -156,26 +152,22 @@ async def translate(interaction: discord.Interaction, text: str, to: str = "en")
     await interaction.response.defer()
     try:
         dest = to.lower()
-        if dest not in LANGUAGES:
-            match = next((k for k, v in LANGUAGES.items() if v.lower() == dest), None)
-            if not match:
-                await interaction.followup.send(
-                    f"❌ Unknown language `{to}`. Try a code like `es`, `fr`, `de`, or a full name like `spanish`.",
-                    ephemeral=True,
-                )
-                return
-            dest = match
-
-        detection = translator.detect(text)
-        result = translator.translate(text, dest=dest)
-        src_name  = LANGUAGES.get(detection.lang, detection.lang).title()
-        dest_name = LANGUAGES.get(dest, dest).title()
+        t = GoogleTranslator(source="auto", target=dest)
+        detected_lang = t.detect(text)
+        result = t.translate(text)
+        src_name  = (detected_lang or "unknown").title()
+        dest_name = dest.title()
 
         embed = discord.Embed(title="🌐 Translation", color=EMBED_COLOR)
-        embed.add_field(name=f"Original ({src_name})", value=text,        inline=False)
-        embed.add_field(name=f"Translated ({dest_name})", value=result.text, inline=False)
+        embed.add_field(name=f"Original ({src_name})", value=text,   inline=False)
+        embed.add_field(name=f"Translated ({dest_name})", value=result, inline=False)
         await interaction.followup.send(embed=embed)
 
+    except LanguageNotSupportedException:
+        await interaction.followup.send(
+            f"❌ Language `{to}` is not supported. Try a code like `es`, `fr`, `de`, or a full name like `spanish`.",
+            ephemeral=True,
+        )
     except Exception as e:
         await interaction.followup.send(f"❌ Translation failed: {e}", ephemeral=True)
 
@@ -224,13 +216,14 @@ async def translate_message(interaction: discord.Interaction, message: discord.M
         await interaction.followup.send("❌ That message has no text to translate.", ephemeral=True)
         return
     try:
-        detection = translator.detect(message.content)
-        result    = translator.translate(message.content, dest="en")
-        src_name  = LANGUAGES.get(detection.lang, detection.lang).title()
+        t = GoogleTranslator(source="auto", target="en")
+        detected_lang = t.detect(message.content)
+        result        = t.translate(message.content)
+        src_name      = (detected_lang or "unknown").title()
 
         embed = discord.Embed(title="🌐 Translation", color=EMBED_COLOR)
         embed.add_field(name=f"Original ({src_name})", value=message.content[:1024], inline=False)
-        embed.add_field(name="English",                value=result.text[:1024],     inline=False)
+        embed.add_field(name="English",                value=result[:1024],           inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ Translation failed: {e}", ephemeral=True)
